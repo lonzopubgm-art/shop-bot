@@ -33,7 +33,7 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 # ====================== TOVARLAR BAZASI ======================
-DB = str(BASE_DIR / "products.json")
+DB = os.getenv("DB_PATH", str(BASE_DIR / "products.json"))
 db_lock = asyncio.Lock()
 
 DEFAULT_PRODUCTS = [
