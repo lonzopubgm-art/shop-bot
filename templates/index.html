@@ -2,7 +2,7 @@
 <html lang="uz">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Stilmen | Mens Wear</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
@@ -80,31 +80,83 @@ const tg = window.Telegram && window.Telegram.WebApp;
 if (tg) {
   tg.ready(); tg.expand();
   try { tg.setHeaderColor('#0e0e10'); tg.setBackgroundColor('#0e0e10'); } catch(e){}
+  try { tg.BackButton.onClick(() => closeAll()); } catch(e){}
 }
 
-// Tovarlar serverdan olinadi (botdagi /add orqali qo'shiladi)
 let PRODUCTS = [], CATS = ["Hammasi"];
-
 let cat = "Hammasi", cart = [], cur = null, selSize = "", selColor = "";
+const CART_KEY = "stilmen_cart_v1";
 const $ = id => document.getElementById(id);
 const fmt = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " so'm";
-const pic = p => p.img ? `<img src="${p.img}" alt="">` : p.emoji;
+
+/* ---------- XAVFSIZLIK: HTML'ni tozalash ---------- */
+function esc(s){
+  return String(s == null ? "" : s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+function safeUrl(u){
+  u = String(u || "").trim();
+  return /^(https?:\/\/|\/)/i.test(u) && !/^\/\//.test(u) ? u : "";
+}
+function pic(p){
+  const url = safeUrl(p.img);
+  if (url) return `<img src="${esc(url)}" alt="" loading="lazy" onerror="this.replaceWith(document.createTextNode('👕'))">`;
+  return esc(p.emoji || "👕");
+}
+
+/* ---------- Tovarlarni tekshirib olish ---------- */
+function cleanProduct(p){
+  if (!p || typeof p !== "object") return null;
+  const id = Number(p.id), price = Number(p.price);
+  if (!Number.isFinite(id) || !Number.isFinite(price) || price < 0) return null;
+  const arr = a => Array.isArray(a) ? a.map(String).filter(Boolean) : [];
+  return {
+    id, price,
+    name: String(p.name || "Nomsiz tovar"),
+    cat: String(p.cat || "Boshqa"),
+    img: p.img || "", emoji: p.emoji || "",
+    sizes: arr(p.sizes).length ? arr(p.sizes) : ["Standart"],
+    colors: arr(p.colors).length ? arr(p.colors) : ["Standart"]
+  };
+}
+
+/* ---------- Savatni saqlash ---------- */
+function saveCart(){
+  try { localStorage.setItem(CART_KEY, JSON.stringify(cart)); } catch(e){}
+}
+function loadCart(){
+  try {
+    const raw = JSON.parse(localStorage.getItem(CART_KEY) || "[]");
+    if (!Array.isArray(raw)) return;
+    cart = raw.map(i => {
+      const p = PRODUCTS.find(x => x.id === Number(i.pid));
+      if (!p || !p.sizes.includes(i.size) || !p.colors.includes(i.color)) return null;
+      const qty = Math.min(99, Math.max(1, parseInt(i.qty) || 1));
+      return {key: p.id+"|"+i.size+"|"+i.color, pid:p.id, name:p.name, price:p.price, size:i.size, color:i.color, qty};
+    }).filter(Boolean);
+  } catch(e){ cart = []; }
+}
 
 async function init(){
   try{
     const r = await fetch("/api/products");
-    PRODUCTS = await r.json();
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const data = await r.json();
+    if (!Array.isArray(data)) throw new Error("bad data");
+    PRODUCTS = data.map(cleanProduct).filter(Boolean);
   }catch(e){
     PRODUCTS = [];
     toast("Tovarlarni yuklab bo'lmadi");
   }
   CATS = ["Hammasi", ...new Set(PRODUCTS.map(p => p.cat))];
-  renderCats(); renderGrid();
+  loadCart();
+  renderCats(); renderGrid(); updateBar();
 }
 
 function renderCats(){
   $("cats").innerHTML = CATS.map((c,i) =>
-    `<button class="chip ${c===cat?"on":""}" onclick="setCat(${i})">${c}</button>`).join("");
+    `<button class="chip ${c===cat?"on":""}" onclick="setCat(${i})">${esc(c)}</button>`).join("");
 }
 function setCat(i){ cat = CATS[i]; renderCats(); renderGrid(); }
 
@@ -114,28 +166,34 @@ function renderGrid(){
   $("grid").innerHTML = list.length ? list.map(p =>
     `<div class="card" onclick="openProduct(${p.id})">
        <div class="pic">${pic(p)}</div>
-       <div class="info"><div class="name">${p.name}</div><div class="price">${fmt(p.price)}</div></div>
+       <div class="info"><div class="name">${esc(p.name)}</div><div class="price">${fmt(p.price)}</div></div>
      </div>`).join("") : '<div class="empty">Tovar topilmadi</div>';
+}
+
+function showSheet(id){
+  $(id).classList.add("show");
+  document.body.classList.add("lock");
+  try { tg && tg.BackButton.show(); } catch(e){}
 }
 
 function openProduct(id){
   cur = PRODUCTS.find(p => p.id===id);
+  if (!cur) return;
   selSize = cur.sizes[0]; selColor = cur.colors[0];
   renderProduct();
-  $("pOv").classList.add("show");
-  document.body.classList.add("lock");
+  showSheet("pOv");
 }
 function renderProduct(){
   const p = cur;
   $("pSheet").innerHTML =
     `<button class="close" onclick="closeAll()">✕</button>
-     <h3>${p.name}</h3>
+     <h3>${esc(p.name)}</h3>
      <div class="big">${pic(p)}</div>
      <div class="price" style="font-size:20px">${fmt(p.price)}</div>
      <div class="label">Razmer</div>
-     <div class="opts">${p.sizes.map((s,i)=>`<button class="chip ${s===selSize?"on":""}" onclick="pick('size',${i})">${s}</button>`).join("")}</div>
+     <div class="opts">${p.sizes.map((s,i)=>`<button class="chip ${s===selSize?"on":""}" onclick="pick('size',${i})">${esc(s)}</button>`).join("")}</div>
      <div class="label">Rang</div>
-     <div class="opts">${p.colors.map((c,i)=>`<button class="chip ${c===selColor?"on":""}" onclick="pick('color',${i})">${c}</button>`).join("")}</div>
+     <div class="opts">${p.colors.map((c,i)=>`<button class="chip ${c===selColor?"on":""}" onclick="pick('color',${i})">${esc(c)}</button>`).join("")}</div>
      <div style="height:18px"></div>
      <button class="btn" onclick="addToCart()">Savatga qo'shish</button>`;
 }
@@ -147,7 +205,8 @@ function pick(t,i){
 function addToCart(){
   const key = cur.id + "|" + selSize + "|" + selColor;
   const ex = cart.find(i => i.key===key);
-  if (ex) ex.qty++; else cart.push({key, name:cur.name, price:cur.price, size:selSize, color:selColor, qty:1});
+  if (ex) ex.qty = Math.min(99, ex.qty + 1);
+  else cart.push({key, pid:cur.id, name:cur.name, price:cur.price, size:selSize, color:selColor, qty:1});
   closeAll(); updateBar(); toast("Savatga qo'shildi ✅");
 }
 
@@ -157,29 +216,30 @@ function updateBar(){
   $("bar").classList.toggle("show", n>0);
   $("barCount").textContent = "🛒 Savat (" + n + ")";
   $("barTotal").textContent = fmt(totalSum());
+  saveCart();
 }
 
-function openCart(){ renderCart(); $("cOv").classList.add("show"); document.body.classList.add("lock"); }
+function openCart(){ renderCart(); showSheet("cOv"); }
 function renderCart(){
   $("cSheet").innerHTML =
     `<button class="close" onclick="closeAll()">✕</button><h3>🛒 Savat</h3>` +
     cart.map((i,x) =>
       `<div class="row">
-         <div class="t">${i.name}<small>${i.size} · ${i.color} · ${fmt(i.price)}</small></div>
+         <div class="t">${esc(i.name)}<small>${esc(i.size)} · ${esc(i.color)} · ${fmt(i.price)}</small></div>
          <div class="qty"><button onclick="chg(${x},-1)">−</button><b>${i.qty}</b><button onclick="chg(${x},1)">+</button></div>
        </div>`).join("") +
     `<div class="total"><span>Jami:</span><span>${fmt(totalSum())}</span></div>
      <div class="form">
-       <input id="fName" placeholder="Ismingiz">
-       <input id="fPhone" type="tel" placeholder="Telefon: +998 90 123 45 67">
-       <textarea id="fAddr" rows="2" placeholder="Manzil"></textarea>
+       <input id="fName" placeholder="Ismingiz" autocomplete="name" maxlength="60">
+       <input id="fPhone" type="tel" placeholder="Telefon: +998 90 123 45 67" autocomplete="tel" maxlength="20">
+       <textarea id="fAddr" rows="2" placeholder="Manzil" maxlength="200"></textarea>
      </div>
      <button class="btn" id="sendBtn" onclick="sendOrder()">Buyurtma berish</button>`;
 }
 function chg(x,d){
   const ids = ["fName","fPhone","fAddr"];
   const v = ids.map(id => $(id).value);
-  cart[x].qty += d;
+  cart[x].qty = Math.min(99, cart[x].qty + d);
   if (cart[x].qty <= 0) cart.splice(x,1);
   updateBar();
   if (!cart.length){ closeAll(); return; }
@@ -187,9 +247,19 @@ function chg(x,d){
   ids.forEach((id,k) => $(id).value = v[k]);
 }
 
+function normPhone(s){
+  let d = String(s).replace(/\D/g, "");
+  if (d.length === 9) d = "998" + d;
+  return /^998\d{9}$/.test(d) ? "+" + d : "";
+}
+
 async function sendOrder(){
-  const name = $("fName").value.trim(), phone = $("fPhone").value.trim(), addr = $("fAddr").value.trim();
-  if (!name || phone.length < 7 || !addr){ toast("Ism, telefon va manzilni to'ldiring"); return; }
+  const name = $("fName").value.trim(), addr = $("fAddr").value.trim();
+  const phone = normPhone($("fPhone").value);
+  if (name.length < 2){ toast("Ismingizni kiriting"); return; }
+  if (!phone){ toast("Telefon raqam noto'g'ri (+998 XX XXX XX XX)"); return; }
+  if (addr.length < 5){ toast("Manzilni to'liq kiriting"); return; }
+
   const u = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) || {};
   const btn = $("sendBtn");
   btn.disabled = true; btn.textContent = "Yuborilmoqda...";
@@ -198,11 +268,17 @@ async function sendOrder(){
       method: "POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({
+        // YANGI: serverda tekshirish uchun
+        init_data: tg ? tg.initData : "",
+        customer: {name, phone, address: addr},
+        items: cart.map(i => ({id:i.pid, size:i.size, color:i.color, qty:i.qty})),
+        // ESKI format: server yangilanguncha ishlashi uchun (keyin o'chirasiz)
         cart: cart.map(i => ({name:i.name, qty:i.qty, price:i.price, size:i.size + " / " + i.color})),
         total: totalSum(),
         user: {first_name: name + " | " + phone + " | " + addr, username: u.username || "", id: u.id || "-"}
       })
     });
+    if (!r.ok) throw new Error("HTTP " + r.status);
     const d = await r.json();
     if (d.status !== "success") throw new Error();
     cart = []; updateBar(); closeAll();
@@ -218,14 +294,16 @@ function closeAll(){
   $("pOv").classList.remove("show");
   $("cOv").classList.remove("show");
   document.body.classList.remove("lock");
+  try { tg && tg.BackButton.hide(); } catch(e){}
 }
 function toast(m){
   const t = $("toast"); t.textContent = m; t.style.display = "block";
   clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 2000);
 }
 
-$("q").addEventListener("input", renderGrid);
-init(); updateBar();
+let _deb;
+$("q").addEventListener("input", () => { clearTimeout(_deb); _deb = setTimeout(renderGrid, 250); });
+init();
 </script>
 </body>
 </html>
