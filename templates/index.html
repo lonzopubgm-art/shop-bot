@@ -331,29 +331,30 @@ async function sendOrder(){
   if (!phone){ toast("Telefon raqam to'liq emas"); return; }
   if (addr.length < 5){ toast("Manzilni to'liq kiriting"); return; }
 
-  const u = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) || {};
   const btn = $("sendBtn");
   btn.disabled = true; btn.textContent = "Yuborilmoqda...";
+  let msg = "Xatolik, qayta urinib ko'ring";
   try{
     const r = await fetch("/api/order", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({
-        cart: cart.map(i => ({id:i.pid, name:i.name, qty:i.qty, price:i.price, size:i.size, color:i.color})),
-        total: totalSum(),
-        user: {first_name: name + " | " + phone + " | " + addr, username: u.username || "", id: u.id || "-"}
+        cart: cart.map(i => ({id:i.pid, qty:i.qty, size:i.size, color:i.color})),
+        name: name,
+        phone: phone,
+        address: addr,
+        init_data: (tg && tg.initData) || ""
       })
     });
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    const d = await r.json();
-    if (d.status !== "success") throw new Error();
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.status !== "success"){ msg = d.message || msg; throw new Error(); }
     try { tg.HapticFeedback.notificationOccurred("success"); } catch(e){}
     cart = []; updateBar(); closeAll();
-    toast("Buyurtma qabul qilindi! ✅");
-    setTimeout(() => { if (tg) tg.close(); }, 1500);
+    toast("Buyurtma #" + d.order_id + " qabul qilindi! ✅");
+    setTimeout(() => { if (tg) tg.close(); }, 1800);
   }catch(e){
     btn.disabled = false; btn.textContent = "Buyurtma berish";
-    toast("Xatolik, qayta urinib ko'ring");
+    toast(msg);
   }
 }
 
