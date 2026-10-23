@@ -1,324 +1,309 @@
-import io
-import os
-import re
-import json
-import asyncio
-import logging
-from contextlib import asynccontextmanager, suppress
-
-from fastapi import FastAPI, Request
-from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse, Response
-from aiogram import Bot, Dispatcher, Router, F, types
-from aiogram.types import (
-    WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile,
-)
-from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-
-logging.basicConfig(level=logging.INFO)
-
-TOKEN = os.getenv("TOKEN", "8996066457:AAHJ1IAjw7GrdXcJsfnKXWvBuSDFrAvSYbY")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "5200431835"))
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://shop-bot-2-8bi5.onrender.com").rstrip("/")
-
-bot = Bot(token=TOKEN)
-dp = Dispatcher()
-
-# ====================== TOVARLAR BAZASI ======================
-DB = "products.json"
-
-DEFAULT_PRODUCTS = [
-    {"id": 1, "name": "Klassik ko'ylak", "cat": "Ko'ylak", "price": 180000, "emoji": "👔", "img": "",
-     "sizes": ["S", "M", "L", "XL"], "colors": ["Oq", "Qora", "Ko'k"]},
-    {"id": 2, "name": "Slim fit shim", "cat": "Shim", "price": 220000, "emoji": "👖", "img": "",
-     "sizes": ["30", "32", "34", "36"], "colors": ["Qora", "Kulrang"]},
-    {"id": 3, "name": "Qishki kurtka", "cat": "Kurtka", "price": 650000, "emoji": "🧥", "img": "",
-     "sizes": ["M", "L", "XL", "XXL"], "colors": ["Qora", "To'q yashil"]},
-    {"id": 4, "name": "Charm poyabzal", "cat": "Poyabzal", "price": 380000, "emoji": "👞", "img": "",
-     "sizes": ["40", "41", "42", "43", "44"], "colors": ["Qora", "Jigarrang"]},
-]
-
-
-def load_products():
-    if not os.path.exists(DB):
-        return list(DEFAULT_PRODUCTS)
-    try:
-        with open(DB, encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        logging.exception("products.json o'qilmadi")
-        return list(DEFAULT_PRODUCTS)
-
-
-async def save_products(items):
-    data = json.dumps(items, ensure_ascii=False, indent=2)
-    with open(DB, "w", encoding="utf-8") as f:
-        f.write(data)
-    try:
-        await bot.send_document(
-            ADMIN_ID,
-            BufferedInputFile(data.encode("utf-8"), filename="products.json"),
-            caption="💾 Zaxira nusxa. Server tozalanib qolsa, shu faylni botga yuboring.",
-        )
-    except Exception:
-        logging.exception("Zaxira yuborilmadi")
-
-
-def split(text):
-    return [x.strip() for x in text.split(",") if x.strip()]
-
-
-# ====================== ADMIN BUYRUQLARI ======================
-admin = Router()
-admin.message.filter(F.from_user.id == ADMIN_ID)
-
-
-class Add(StatesGroup):
-    name = State()
-    price = State()
-    cat = State()
-    sizes = State()
-    colors = State()
-    photo = State()
-
-
-@admin.message(Command("cancel"))
-async def cancel(m: types.Message, state: FSMContext):
-    await state.clear()
-    await m.answer("Bekor qilindi.")
-
-
-@admin.message(Command("add"))
-async def add_start(m: types.Message, state: FSMContext):
-    await state.set_state(Add.name)
-    await m.answer("Tovar nomi? (bekor qilish: /cancel)")
-
-
-@admin.message(Add.name, F.text)
-async def add_name(m: types.Message, state: FSMContext):
-    await state.update_data(name=m.text.strip())
-    await state.set_state(Add.price)
-    await m.answer("Narxi? (faqat raqam, masalan 180000)")
-
-
-@admin.message(Add.price, F.text)
-async def add_price(m: types.Message, state: FSMContext):
-    digits = re.sub(r"\D", "", m.text)
-    if not digits:
-        return await m.answer("Faqat raqam yozing, masalan 180000")
-    await state.update_data(price=int(digits))
-    await state.set_state(Add.cat)
-    await m.answer("Kategoriya? (masalan: Ko'ylak, Shim, Kurtka, Poyabzal)")
-
-
-@admin.message(Add.cat, F.text)
-async def add_cat(m: types.Message, state: FSMContext):
-    await state.update_data(cat=m.text.strip())
-    await state.set_state(Add.sizes)
-    await m.answer("Razmerlar? Vergul bilan: S, M, L, XL")
-
-
-@admin.message(Add.sizes, F.text)
-async def add_sizes(m: types.Message, state: FSMContext):
-    sizes = split(m.text)
-    if not sizes:
-        return await m.answer("Kamida bitta razmer yozing.")
-    await state.update_data(sizes=sizes)
-    await state.set_state(Add.colors)
-    await m.answer("Ranglar? Vergul bilan: Oq, Qora, Ko'k")
-
-
-@admin.message(Add.colors, F.text)
-async def add_colors(m: types.Message, state: FSMContext):
-    colors = split(m.text)
-    if not colors:
-        return await m.answer("Kamida bitta rang yozing.")
-    await state.update_data(colors=colors)
-    await state.set_state(Add.photo)
-    await m.answer("Endi tovar rasmini yuboring (oddiy foto sifatida).")
-
-
-@admin.message(Add.photo, F.photo)
-async def add_photo(m: types.Message, state: FSMContext):
-    data = await state.get_data()
-    file_id = m.photo[-1].file_id
-    items = load_products()
-    new_id = max([p["id"] for p in items], default=0) + 1
-    items.append({
-        "id": new_id,
-        "name": data["name"],
-        "cat": data["cat"],
-        "price": data["price"],
-        "emoji": "🛍️",
-        "img": f"/api/img/{file_id}",
-        "sizes": data["sizes"],
-        "colors": data["colors"],
-    })
-    await save_products(items)
-    await state.clear()
-    await m.answer(f"✅ Qo'shildi: {data['name']} (ID: {new_id})")
-
-
-@admin.message(Add.photo)
-async def add_photo_wrong(m: types.Message):
-    await m.answer("Iltimos, rasm yuboring (fayl emas, oddiy foto).")
-
-
-@admin.message(Command("list"))
-async def list_products(m: types.Message):
-    items = load_products()
-    if not items:
-        return await m.answer("Tovarlar yo'q.")
-    text = "\n".join(
-        f"{p['id']}. {p['name']} — {p['price']:,} so'm [{p['cat']}]".replace(",", " ") for p in items
-    )
-    await m.answer(text + "\n\nO'chirish: /del ID")
-
-
-@admin.message(Command("del"))
-async def delete_product(m: types.Message):
-    parts = m.text.split()
-    if len(parts) != 2 or not parts[1].isdigit():
-        return await m.answer("Ishlatilishi: /del 3")
-    pid = int(parts[1])
-    items = load_products()
-    left = [p for p in items if p["id"] != pid]
-    if len(left) == len(items):
-        return await m.answer("Bunday ID topilmadi.")
-    await save_products(left)
-    await m.answer("🗑 O'chirildi.")
-
-
-@admin.message(F.document)
-async def restore(m: types.Message):
-    if m.document.file_name != "products.json":
-        return
-    try:
-        buf = io.BytesIO()
-        await bot.download(m.document, destination=buf)
-        items = json.loads(buf.getvalue().decode("utf-8"))
-        assert isinstance(items, list)
-        with open(DB, "w", encoding="utf-8") as f:
-            json.dump(items, f, ensure_ascii=False, indent=2)
-        await m.answer(f"♻️ Tiklandi: {len(items)} ta tovar.")
-    except Exception:
-        await m.answer("Fayl noto'g'ri.")
-
-
-dp.include_router(admin)
-
-
-# ====================== START ======================
-@dp.message(Command("start"))
-async def start_cmd(message: types.Message):
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🛍 Do'konni ochish",
-                    web_app=WebAppInfo(url=f"{WEBHOOK_URL}/shop"),
-                )
-            ]
-        ]
-    )
-    await message.answer(
-        "Assalomu alaykum! Bizning internet-do'konimizga xush kelibsiz. "
-        "Mahsulotlarni tanlash uchun quyidagi tugmani bosing:",
-        reply_markup=keyboard,
-    )
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await bot.delete_webhook(drop_pending_updates=True)
-    task = asyncio.create_task(dp.start_polling(bot))
-    yield
-    task.cancel()
-    with suppress(asyncio.CancelledError):
-        await task
-    await bot.session.close()
-
-
-app = FastAPI(lifespan=lifespan)
-templates = Jinja2Templates(directory="templates")
-
-
-@app.get("/")
-async def root():
-    return {"status": "ok"}
-
-
-@app.get("/shop", response_class=HTMLResponse)
-async def shop_page(request: Request):
-    return templates.TemplateResponse(request, "index.html")
-
-
-@app.get("/api/products")
-async def api_products():
-    return JSONResponse(load_products(), headers={"Cache-Control": "no-store"})
-
-
-@app.get("/api/img/{file_id}")
-async def api_img(file_id: str):
-    try:
-        f = await bot.get_file(file_id)
-        buf = io.BytesIO()
-        await bot.download_file(f.file_path, destination=buf)
-        return Response(
-            buf.getvalue(),
-            media_type="image/jpeg",
-            headers={"Cache-Control": "public, max-age=86400"},
-        )
-    except Exception:
-        return Response(status_code=404)
-
-
-@app.post("/api/order")
-async def create_order(request: Request):
-    try:
-        data = await request.json()
-    except Exception:
-        return JSONResponse({"status": "error", "message": "Noto'g'ri so'rov"}, status_code=400)
-
-    cart = data.get("cart", [])
-    total = data.get("total", 0)
-    user = data.get("user") or {}
-
-    lines = []
-    for item in cart:
-        name = item.get("name") or item.get("title") or "Mahsulot"
-        qty = item.get("qty") or item.get("quantity") or 1
-        price = item.get("price", "")
-        size = item.get("size")
-        line = f"• {name} x{qty}"
-        if size:
-            line += f" ({size})"
-        if price != "":
-            line += f" - {price} so'm"
-        lines.append(line)
-
-    customer = ""
-    if user:
-        uname = user.get("username")
-        customer = (
-            f"\n👤 {user.get('first_name', '')} "
-            f"{'@' + uname if uname else ''} (ID: {user.get('id', '-')})"
-        )
-
-    order_text = (
-        "🚨 Yangi buyurtma!\n\n"
-        + ("\n".join(lines) if lines else "Savat bo'sh")
-        + f"\n\n💰 Umumiy summa: {total} so'm"
-        + customer
-    )
-    logging.info(order_text)
-
-    try:
-        await bot.send_message(ADMIN_ID, order_text)
-    except Exception:
-        logging.exception("Adminga xabar yuborib bo'lmadi")
-        return JSONResponse({"status": "error", "message": "Xatolik, qayta urinib ko'ring"}, status_code=500)
-
-    return {"status": "success", "message": "Buyurtma qabul qilindi!"}
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stilmen | Mens Wear</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--bg:#0e0e10;--card:#18181b;--line:#2a2a2f;--gold:#d4af37;--text:#f4f4f5;--mute:#9a9aa3}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,"Segoe UI",Roboto,sans-serif;padding-bottom:100px}
+body.lock{overflow:hidden}
+header{padding:18px 16px 8px;text-align:center}
+.brand{font-size:26px;font-weight:800;letter-spacing:4px;color:var(--gold)}
+.sub{font-size:12px;letter-spacing:3px;color:var(--mute);margin-top:2px}
+.top{position:sticky;top:0;z-index:5;background:var(--bg);padding-bottom:4px}
+.search{margin:12px 16px 0}
+input,textarea{width:100%;background:var(--card);border:1px solid var(--line);color:var(--text);border-radius:12px;padding:13px 14px;font-size:16px;outline:none;font-family:inherit}
+input:focus,textarea:focus{border-color:var(--gold)}
+.cats{display:flex;gap:8px;overflow-x:auto;padding:14px 16px 4px;scrollbar-width:none}
+.cats::-webkit-scrollbar{display:none}
+.chip{flex:none;padding:9px 16px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:14px;cursor:pointer}
+.chip.on{background:var(--gold);border-color:var(--gold);color:#111;font-weight:600}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden;cursor:pointer;transition:transform .15s}
+.card:active{transform:scale(.97)}
+.pic{aspect-ratio:4/5;background:#232327;display:flex;align-items:center;justify-content:center;font-size:56px}
+.pic img{width:100%;height:100%;object-fit:cover}
+.info{padding:10px 12px 14px}
+.name{font-size:14px;line-height:1.3;min-height:36px}
+.price{color:var(--gold);font-weight:700;margin-top:6px}
+.empty{grid-column:1/-1;text-align:center;color:var(--mute);padding:40px 0}
+.btn{width:100%;border:0;border-radius:14px;padding:15px;font-size:16px;font-weight:700;background:var(--gold);color:#111;cursor:pointer}
+.btn:disabled{opacity:.5}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:flex-end;z-index:20}
+.overlay.show{display:flex}
+.sheet{background:var(--bg);width:100%;max-height:90vh;overflow-y:auto;border-radius:22px 22px 0 0;padding:18px 16px 24px;border-top:1px solid var(--line)}
+.sheet h3{font-size:18px;margin-bottom:10px}
+.close{float:right;background:var(--card);border:0;color:var(--text);width:34px;height:34px;border-radius:50%;font-size:16px}
+.big{aspect-ratio:1.2;border-radius:14px;overflow:hidden;background:#232327;display:flex;align-items:center;justify-content:center;font-size:90px;margin:8px 0 12px}
+.big img{width:100%;height:100%;object-fit:cover}
+.label{font-size:13px;color:var(--mute);margin:14px 0 8px}
+.opts{display:flex;flex-wrap:wrap;gap:8px}
+.row{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}
+.row .t{flex:1;font-size:14px}
+.row .t small{display:block;color:var(--mute);margin-top:3px}
+.qty{display:flex;align-items:center;gap:10px}
+.qty button{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:18px}
+.total{display:flex;justify-content:space-between;font-size:17px;font-weight:700;margin:16px 0 12px}
+.total span:last-child{color:var(--gold)}
+.form{display:grid;gap:10px;margin-bottom:14px}
+.bar{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:10;display:none}
+.bar.show{display:block}
+.bar .btn{display:flex;justify-content:space-between;box-shadow:0 6px 24px rgba(0,0,0,.5)}
+.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);background:var(--gold);color:#111;padding:10px 18px;border-radius:20px;font-weight:600;font-size:14px;z-index:50;display:none;white-space:nowrap}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">STILMEN</div>
+  <div class="sub">MENS WEAR</div>
+</header>
+<div class="top">
+  <div class="search"><input id="q" placeholder="🔍 Qidirish..."></div>
+  <div class="cats" id="cats"></div>
+</div>
+<div class="grid" id="grid"></div>
+
+<div class="bar" id="bar">
+  <button class="btn" onclick="openCart()"><span id="barCount"></span><span id="barTotal"></span></button>
+</div>
+
+<div class="overlay" id="pOv" onclick="if(event.target===this)closeAll()"><div class="sheet" id="pSheet"></div></div>
+<div class="overlay" id="cOv" onclick="if(event.target===this)closeAll()"><div class="sheet" id="cSheet"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) {
+  tg.ready(); tg.expand();
+  try { tg.setHeaderColor('#0e0e10'); tg.setBackgroundColor('#0e0e10'); } catch(e){}
+  try { tg.BackButton.onClick(() => closeAll()); } catch(e){}
+}
+
+let PRODUCTS = [], CATS = ["Hammasi"];
+let cat = "Hammasi", cart = [], cur = null, selSize = "", selColor = "";
+const CART_KEY = "stilmen_cart_v1";
+const $ = id => document.getElementById(id);
+const fmt = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " so'm";
+
+/* ---------- XAVFSIZLIK: HTML'ni tozalash ---------- */
+function esc(s){
+  return String(s == null ? "" : s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+function safeUrl(u){
+  u = String(u || "").trim();
+  return /^(https?:\/\/|\/)/i.test(u) && !/^\/\//.test(u) ? u : "";
+}
+function pic(p){
+  const url = safeUrl(p.img);
+  if (url) return `<img src="${esc(url)}" alt="" loading="lazy" onerror="this.replaceWith(document.createTextNode('👕'))">`;
+  return esc(p.emoji || "👕");
+}
+
+/* ---------- Tovarlarni tekshirib olish ---------- */
+function cleanProduct(p){
+  if (!p || typeof p !== "object") return null;
+  const id = Number(p.id), price = Number(p.price);
+  if (!Number.isFinite(id) || !Number.isFinite(price) || price < 0) return null;
+  const arr = a => Array.isArray(a) ? a.map(String).filter(Boolean) : [];
+  return {
+    id, price,
+    name: String(p.name || "Nomsiz tovar"),
+    cat: String(p.cat || "Boshqa"),
+    img: p.img || "", emoji: p.emoji || "",
+    sizes: arr(p.sizes).length ? arr(p.sizes) : ["Standart"],
+    colors: arr(p.colors).length ? arr(p.colors) : ["Standart"]
+  };
+}
+
+/* ---------- Savatni saqlash ---------- */
+function saveCart(){
+  try { localStorage.setItem(CART_KEY, JSON.stringify(cart)); } catch(e){}
+}
+function loadCart(){
+  try {
+    const raw = JSON.parse(localStorage.getItem(CART_KEY) || "[]");
+    if (!Array.isArray(raw)) return;
+    cart = raw.map(i => {
+      const p = PRODUCTS.find(x => x.id === Number(i.pid));
+      if (!p || !p.sizes.includes(i.size) || !p.colors.includes(i.color)) return null;
+      const qty = Math.min(99, Math.max(1, parseInt(i.qty) || 1));
+      return {key: p.id+"|"+i.size+"|"+i.color, pid:p.id, name:p.name, price:p.price, size:i.size, color:i.color, qty};
+    }).filter(Boolean);
+  } catch(e){ cart = []; }
+}
+
+async function init(){
+  try{
+    const r = await fetch("/api/products");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const data = await r.json();
+    if (!Array.isArray(data)) throw new Error("bad data");
+    PRODUCTS = data.map(cleanProduct).filter(Boolean);
+  }catch(e){
+    PRODUCTS = [];
+    toast("Tovarlarni yuklab bo'lmadi");
+  }
+  CATS = ["Hammasi", ...new Set(PRODUCTS.map(p => p.cat))];
+  loadCart();
+  renderCats(); renderGrid(); updateBar();
+}
+
+function renderCats(){
+  $("cats").innerHTML = CATS.map((c,i) =>
+    `<button class="chip ${c===cat?"on":""}" onclick="setCat(${i})">${esc(c)}</button>`).join("");
+}
+function setCat(i){ cat = CATS[i]; renderCats(); renderGrid(); }
+
+function renderGrid(){
+  const s = $("q").value.trim().toLowerCase();
+  const list = PRODUCTS.filter(p => (cat==="Hammasi" || p.cat===cat) && p.name.toLowerCase().includes(s));
+  $("grid").innerHTML = list.length ? list.map(p =>
+    `<div class="card" onclick="openProduct(${p.id})">
+       <div class="pic">${pic(p)}</div>
+       <div class="info"><div class="name">${esc(p.name)}</div><div class="price">${fmt(p.price)}</div></div>
+     </div>`).join("") : '<div class="empty">Tovar topilmadi</div>';
+}
+
+function showSheet(id){
+  $(id).classList.add("show");
+  document.body.classList.add("lock");
+  try { tg && tg.BackButton.show(); } catch(e){}
+}
+
+function openProduct(id){
+  cur = PRODUCTS.find(p => p.id===id);
+  if (!cur) return;
+  selSize = cur.sizes[0]; selColor = cur.colors[0];
+  renderProduct();
+  showSheet("pOv");
+}
+function renderProduct(){
+  const p = cur;
+  $("pSheet").innerHTML =
+    `<button class="close" onclick="closeAll()">✕</button>
+     <h3>${esc(p.name)}</h3>
+     <div class="big">${pic(p)}</div>
+     <div class="price" style="font-size:20px">${fmt(p.price)}</div>
+     <div class="label">Razmer</div>
+     <div class="opts">${p.sizes.map((s,i)=>`<button class="chip ${s===selSize?"on":""}" onclick="pick('size',${i})">${esc(s)}</button>`).join("")}</div>
+     <div class="label">Rang</div>
+     <div class="opts">${p.colors.map((c,i)=>`<button class="chip ${c===selColor?"on":""}" onclick="pick('color',${i})">${esc(c)}</button>`).join("")}</div>
+     <div style="height:18px"></div>
+     <button class="btn" onclick="addToCart()">Savatga qo'shish</button>`;
+}
+function pick(t,i){
+  if (t==="size") selSize = cur.sizes[i]; else selColor = cur.colors[i];
+  renderProduct();
+}
+
+function addToCart(){
+  const key = cur.id + "|" + selSize + "|" + selColor;
+  const ex = cart.find(i => i.key===key);
+  if (ex) ex.qty = Math.min(99, ex.qty + 1);
+  else cart.push({key, pid:cur.id, name:cur.name, price:cur.price, size:selSize, color:selColor, qty:1});
+  closeAll(); updateBar(); toast("Savatga qo'shildi ✅");
+}
+
+function totalSum(){ return cart.reduce((s,i) => s + i.price*i.qty, 0); }
+function updateBar(){
+  const n = cart.reduce((s,i) => s + i.qty, 0);
+  $("bar").classList.toggle("show", n>0);
+  $("barCount").textContent = "🛒 Savat (" + n + ")";
+  $("barTotal").textContent = fmt(totalSum());
+  saveCart();
+}
+
+function openCart(){ renderCart(); showSheet("cOv"); }
+function renderCart(){
+  $("cSheet").innerHTML =
+    `<button class="close" onclick="closeAll()">✕</button><h3>🛒 Savat</h3>` +
+    cart.map((i,x) =>
+      `<div class="row">
+         <div class="t">${esc(i.name)}<small>${esc(i.size)} · ${esc(i.color)} · ${fmt(i.price)}</small></div>
+         <div class="qty"><button onclick="chg(${x},-1)">−</button><b>${i.qty}</b><button onclick="chg(${x},1)">+</button></div>
+       </div>`).join("") +
+    `<div class="total"><span>Jami:</span><span>${fmt(totalSum())}</span></div>
+     <div class="form">
+       <input id="fName" placeholder="Ismingiz" autocomplete="name" maxlength="60">
+       <input id="fPhone" type="tel" placeholder="Telefon: +998 90 123 45 67" autocomplete="tel" maxlength="20">
+       <textarea id="fAddr" rows="2" placeholder="Manzil" maxlength="200"></textarea>
+     </div>
+     <button class="btn" id="sendBtn" onclick="sendOrder()">Buyurtma berish</button>`;
+}
+function chg(x,d){
+  const ids = ["fName","fPhone","fAddr"];
+  const v = ids.map(id => $(id).value);
+  cart[x].qty = Math.min(99, cart[x].qty + d);
+  if (cart[x].qty <= 0) cart.splice(x,1);
+  updateBar();
+  if (!cart.length){ closeAll(); return; }
+  renderCart();
+  ids.forEach((id,k) => $(id).value = v[k]);
+}
+
+function normPhone(s){
+  let d = String(s).replace(/\D/g, "");
+  if (d.length === 9) d = "998" + d;
+  return /^998\d{9}$/.test(d) ? "+" + d : "";
+}
+
+async function sendOrder(){
+  const name = $("fName").value.trim(), addr = $("fAddr").value.trim();
+  const phone = normPhone($("fPhone").value);
+  if (name.length < 2){ toast("Ismingizni kiriting"); return; }
+  if (!phone){ toast("Telefon raqam noto'g'ri (+998 XX XXX XX XX)"); return; }
+  if (addr.length < 5){ toast("Manzilni to'liq kiriting"); return; }
+
+  const u = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) || {};
+  const btn = $("sendBtn");
+  btn.disabled = true; btn.textContent = "Yuborilmoqda...";
+  try{
+    const r = await fetch("/api/order", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        // YANGI: serverda tekshirish uchun
+        init_data: tg ? tg.initData : "",
+        customer: {name, phone, address: addr},
+        items: cart.map(i => ({id:i.pid, size:i.size, color:i.color, qty:i.qty})),
+        // ESKI format: server yangilanguncha ishlashi uchun (keyin o'chirasiz)
+        cart: cart.map(i => ({name:i.name, qty:i.qty, price:i.price, size:i.size + " / " + i.color})),
+        total: totalSum(),
+        user: {first_name: name + " | " + phone + " | " + addr, username: u.username || "", id: u.id || "-"}
+      })
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const d = await r.json();
+    if (d.status !== "success") throw new Error();
+    cart = []; updateBar(); closeAll();
+    toast("Buyurtma qabul qilindi! ✅");
+    setTimeout(() => { if (tg) tg.close(); }, 1500);
+  }catch(e){
+    btn.disabled = false; btn.textContent = "Buyurtma berish";
+    toast("Xatolik, qayta urinib ko'ring");
+  }
+}
+
+function closeAll(){
+  $("pOv").classList.remove("show");
+  $("cOv").classList.remove("show");
+  document.body.classList.remove("lock");
+  try { tg && tg.BackButton.hide(); } catch(e){}
+}
+function toast(m){
+  const t = $("toast"); t.textContent = m; t.style.display = "block";
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 2000);
+}
+
+let _deb;
+$("q").addEventListener("input", () => { clearTimeout(_deb); _deb = setTimeout(renderGrid, 250); });
+init();
+</script>
+</body>
+</html>
