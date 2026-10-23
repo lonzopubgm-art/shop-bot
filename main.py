@@ -2,11 +2,16 @@ import io
 import os
 import re
 import json
+import time
+import hmac
+import hashlib
+import secrets
 import asyncio
 import logging
 from collections import OrderedDict
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from urllib.parse import parse_qsl
 
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
@@ -23,11 +28,14 @@ logging.basicConfig(level=logging.INFO)
 
 BASE_DIR = Path(__file__).resolve().parent
 
-TOKEN = os.getenv("TOKEN", "8996066457:AAHJ1IAjw7GrdXcJsfnKXWvBuSDFrAvSYbY")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "5200431835"))
+# ====================== SOZLAMALAR (hammasi Render Environment'dan) ======================
+TOKEN = os.environ["TOKEN"]
+ADMIN_ID = int(os.environ["ADMIN_ID"])
+WEBHOOK_SECRET = os.environ["WEBHOOK_SECRET"]
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://shop-bot-2-8bi5.onrender.com").rstrip("/")
 WEBHOOK_PATH = "/webhook"
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "shopbot_secret_2026")
+# Telegram imzosi tekshirilsin (soxta buyurtmalardan himoya). Render'da STRICT_ORDERS=1
+STRICT_ORDERS = os.getenv("STRICT_ORDERS") == "1"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -48,31 +56,81 @@ DEFAULT_PRODUCTS = [
 ]
 
 
+def clean_products(items):
+    """Bazani tekshiradi. Noto'g'ri bo'lsa xatolik beradi."""
+    if not isinstance(items, list):
+        raise ValueError("ro'yxat emas")
+    out = []
+    for p in items:
+        out.append({
+            "id": int(p["id"]),
+            "name": str(p["name"]),
+            "cat": str(p.get("cat", "")),
+            "price": int(p["price"]),
+            "emoji": str(p.get("emoji", "🛍️")),
+            "img": str(p.get("img", "")),
+            "sizes": [str(x) for x in p.get("sizes", [])],
+            "colors": [str(x) for x in p.get("colors", [])],
+        })
+    return out
+
+
+def write_db(items):
+    tmp = DB + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, DB)
+
+
 def load_products():
     if not os.path.exists(DB):
         return list(DEFAULT_PRODUCTS)
     try:
         with open(DB, encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, list) else list(DEFAULT_PRODUCTS)
+            return clean_products(json.load(f))
     except Exception:
         logging.exception("products.json o'qilmadi")
         return list(DEFAULT_PRODUCTS)
 
 
+async def pin_only(message_id):
+    """Eski qadalgan xabarlarni olib, faqat yangisini qadaydi."""
+    with suppress(Exception):
+        await bot.unpin_all_chat_messages(ADMIN_ID)
+    await bot.pin_chat_message(ADMIN_ID, message_id, disable_notification=True)
+
+
 async def save_products(items):
-    data = json.dumps(items, ensure_ascii=False, indent=2)
     async with db_lock:
-        with open(DB, "w", encoding="utf-8") as f:
-            f.write(data)
+        write_db(items)
+    data = json.dumps(items, ensure_ascii=False, indent=2).encode("utf-8")
     try:
-        await bot.send_document(
+        sent = await bot.send_document(
             ADMIN_ID,
-            BufferedInputFile(data.encode("utf-8"), filename="products.json"),
-            caption="💾 Zaxira nusxa. Server tozalanib qolsa, shu faylni botga yuboring.",
+            BufferedInputFile(data, filename="products.json"),
+            caption="💾 Zaxira nusxa. Server qayta ishga tushganda avtomatik tiklanadi.",
         )
+        await pin_only(sent.message_id)
     except Exception:
         logging.exception("Zaxira yuborilmadi")
+
+
+async def restore_from_pinned():
+    """Server tozalangan bo'lsa, admin chatida qadalgan products.json dan tiklaydi."""
+    try:
+        chat = await bot.get_chat(ADMIN_ID)
+        pinned = getattr(chat, "pinned_message", None)
+        doc = pinned.document if pinned else None
+        if not doc or doc.file_name != "products.json":
+            logging.info("Qadalgan zaxira topilmadi, standart tovarlar ishlatiladi")
+            return
+        buf = io.BytesIO()
+        await bot.download(doc, destination=buf)
+        items = clean_products(json.loads(buf.getvalue().decode("utf-8")))
+        write_db(items)
+        logging.info("Baza qadalgan zaxiradan tiklandi: %s ta tovar", len(items))
+    except Exception:
+        logging.exception("Zaxiradan tiklab bo'lmadi")
 
 
 def split(text):
@@ -126,14 +184,15 @@ async def add_start(m: types.Message, state: FSMContext):
     await m.answer("Tovar nomi? (bekor qilish: /cancel)")
 
 
-@admin.message(Add.name, F.text)
+# Buyruqlar (/list, /del ...) nom sifatida qabul qilinmasligi uchun "/" bilan boshlanmaganlar olinadi
+@admin.message(Add.name, F.text.regexp(r"^[^/]"))
 async def add_name(m: types.Message, state: FSMContext):
     await state.update_data(name=m.text.strip())
     await state.set_state(Add.price)
     await m.answer("Narxi? (faqat raqam, masalan 180000)")
 
 
-@admin.message(Add.price, F.text)
+@admin.message(Add.price, F.text.regexp(r"^[^/]"))
 async def add_price(m: types.Message, state: FSMContext):
     price = to_int(m.text)
     if price <= 0:
@@ -143,14 +202,14 @@ async def add_price(m: types.Message, state: FSMContext):
     await m.answer("Kategoriya? (masalan: Ko'ylak, Shim, Kurtka, Poyabzal)")
 
 
-@admin.message(Add.cat, F.text)
+@admin.message(Add.cat, F.text.regexp(r"^[^/]"))
 async def add_cat(m: types.Message, state: FSMContext):
     await state.update_data(cat=m.text.strip())
     await state.set_state(Add.sizes)
-    await m.answer("Razmerlar? Vergul bilan: S, M, L, XL")
+    await m.answer("Razmerlar? Vergul bilan: S, M, L, XL (shim uchun: 30, 32, 34, 36)")
 
 
-@admin.message(Add.sizes, F.text)
+@admin.message(Add.sizes, F.text.regexp(r"^[^/]"))
 async def add_sizes(m: types.Message, state: FSMContext):
     sizes = split(m.text)
     if not sizes:
@@ -160,7 +219,7 @@ async def add_sizes(m: types.Message, state: FSMContext):
     await m.answer("Ranglar? Vergul bilan: Oq, Qora, Ko'k")
 
 
-@admin.message(Add.colors, F.text)
+@admin.message(Add.colors, F.text.regexp(r"^[^/]"))
 async def add_colors(m: types.Message, state: FSMContext):
     colors = split(m.text)
     if not colors:
@@ -189,11 +248,6 @@ async def add_photo(m: types.Message, state: FSMContext):
     await save_products(items)
     await state.clear()
     await m.answer(f"✅ Qo'shildi: {data['name']} (ID: {new_id})")
-
-
-@admin.message(Add.photo)
-async def add_photo_wrong(m: types.Message):
-    await m.answer("Iltimos, rasm yuboring (fayl emas, oddiy foto).")
 
 
 @admin.message(Command("list"))
@@ -228,15 +282,21 @@ async def restore(m: types.Message):
     try:
         buf = io.BytesIO()
         await bot.download(m.document, destination=buf)
-        items = json.loads(buf.getvalue().decode("utf-8"))
-        assert isinstance(items, list)
+        items = clean_products(json.loads(buf.getvalue().decode("utf-8")))
         async with db_lock:
-            with open(DB, "w", encoding="utf-8") as f:
-                json.dump(items, f, ensure_ascii=False, indent=2)
+            write_db(items)
+        with suppress(Exception):
+            await pin_only(m.message_id)  # kelajakda avtomatik tiklanishi uchun qadaymiz
         await m.answer(f"♻️ Tiklandi: {len(items)} ta tovar.")
     except Exception:
         logging.exception("Tiklashda xatolik")
         await m.answer("Fayl noto'g'ri.")
+
+
+# Eng oxirida: rasm kutilayotganda boshqa narsa yuborilsa
+@admin.message(Add.photo)
+async def add_photo_wrong(m: types.Message):
+    await m.answer("Iltimos, rasm yuboring (fayl emas, oddiy foto). Bekor qilish: /cancel")
 
 
 dp.include_router(admin)
@@ -264,13 +324,59 @@ async def start_cmd(message: types.Message):
         await message.answer("Siz adminsiz. Buyruqlar ro'yxati: /help")
 
 
+# ====================== XAVFSIZLIK ======================
+def verify_init_data(init_data: str):
+    """Telegram WebApp initData imzosini tekshiradi. To'g'ri bo'lsa user dict qaytaradi."""
+    try:
+        pairs = dict(parse_qsl(init_data, keep_blank_values=True))
+        received = pairs.pop("hash", None)
+        if not received:
+            return None
+        check = "\n".join(f"{k}={v}" for k, v in sorted(pairs.items()))
+        secret = hmac.new(b"WebAppData", TOKEN.encode(), hashlib.sha256).digest()
+        calc = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(calc, received):
+            return None
+        if time.time() - int(pairs.get("auth_date", "0")) > 86400:
+            return None
+        user = json.loads(pairs.get("user", "{}"))
+        return user if isinstance(user, dict) and user.get("id") else None
+    except Exception:
+        return None
+
+
+RATE = {}
+
+
+def too_many(ip, limit=5, window=60):
+    now = time.time()
+    hits = [t for t in RATE.get(ip, []) if now - t < window]
+    if len(hits) >= limit:
+        RATE[ip] = hits
+        return True
+    hits.append(now)
+    RATE[ip] = hits
+    if len(RATE) > 5000:
+        RATE.clear()
+    return False
+
+
+def client_ip(request: Request):
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "-"
+
+
 # ====================== SERVER ======================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not os.path.exists(DB):
+        await restore_from_pinned()
     await bot.set_webhook(
         f"{WEBHOOK_URL}{WEBHOOK_PATH}",
         secret_token=WEBHOOK_SECRET,
-        drop_pending_updates=True,
+        drop_pending_updates=False,
         allowed_updates=dp.resolve_used_update_types(),
     )
     logging.info("Webhook o'rnatildi: %s%s", WEBHOOK_URL, WEBHOOK_PATH)
@@ -290,7 +396,8 @@ async def root():
 
 @app.post(WEBHOOK_PATH)
 async def telegram_webhook(request: Request):
-    if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != WEBHOOK_SECRET:
+    token = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not hmac.compare_digest(token, WEBHOOK_SECRET):
         return Response(status_code=403)
     try:
         update = types.Update.model_validate(await request.json(), context={"bot": bot})
@@ -316,6 +423,9 @@ IMG_CACHE_MAX = 100
 
 @app.get("/api/img/{file_id}")
 async def api_img(file_id: str):
+    # Faqat bazadagi tovarlarning rasmlari beriladi
+    if not any(str(p.get("img", "")).endswith("/" + file_id) for p in load_products()):
+        return Response(status_code=404)
     headers = {"Cache-Control": "public, max-age=86400"}
     if file_id in IMG_CACHE:
         IMG_CACHE.move_to_end(file_id)
@@ -333,56 +443,77 @@ async def api_img(file_id: str):
         return Response(status_code=404)
 
 
+def err(message, status=400):
+    return JSONResponse({"status": "error", "message": message}, status_code=status)
+
+
 @app.post("/api/order")
 async def create_order(request: Request):
+    if too_many(client_ip(request)):
+        return err("Juda ko'p so'rov. Birozdan keyin urinib ko'ring.", 429)
+
     try:
         data = await request.json()
     except Exception:
-        return JSONResponse({"status": "error", "message": "Noto'g'ri so'rov"}, status_code=400)
+        return err("Noto'g'ri so'rov")
+    if not isinstance(data, dict):
+        return err("Noto'g'ri so'rov")
 
-    cart = data.get("cart") or []
+    cart = data.get("cart")
     if not isinstance(cart, list) or not cart:
-        return JSONResponse({"status": "error", "message": "Savat bo'sh"}, status_code=400)
-    cart = cart[:50]
+        return err("Savat bo'sh")
 
-    user = data.get("user") or {}
+    # Mijoz Telegram orqali kelganini imzo bilan tekshiramiz
+    verified = verify_init_data(str(data.get("init_data") or ""))
+    if STRICT_ORDERS and not verified:
+        return err("Do'konni Telegram ichidan oching", 403)
+
     products = {p["id"]: p for p in load_products()}
 
     lines = []
     total = 0
-    for item in cart:
+    for item in cart[:50]:
         if not isinstance(item, dict):
             continue
-        pid = to_int(item.get("id"), default=-1)
-        prod = products.get(pid)
-
-        name = prod["name"] if prod else (item.get("name") or item.get("title") or "Mahsulot")
+        prod = products.get(to_int(item.get("id"), -1))
+        if not prod:
+            return err("Mahsulot topilmadi. Sahifani yangilang.")
         qty = min(max(to_int(item.get("qty") or item.get("quantity"), 1), 1), 99)
-        # Narx serverdagi bazadan olinadi (mijoz yuborgan narxga ishonilmaydi)
-        price = prod["price"] if prod else to_int(item.get("price"))
+        price = prod["price"]  # narx faqat serverdan
         total += price * qty
 
-        line = f"• {name} x{qty}"
-        extras = [str(x) for x in (item.get("size"), item.get("color")) if x]
+        line = f"• {prod['name']} x{qty}"
+        extras = [str(x)[:30] for x in (item.get("size"), item.get("color")) if x]
         if extras:
             line += f" ({', '.join(extras)})"
-        if price:
-            line += f" - {money(price * qty)} so'm"
+        line += f" - {money(price * qty)} so'm"
         lines.append(line)
 
     if not lines:
-        return JSONResponse({"status": "error", "message": "Savat bo'sh"}, status_code=400)
+        return err("Savat bo'sh")
 
-    customer = ""
-    if isinstance(user, dict) and user:
-        uname = user.get("username")
+    name = str(data.get("name") or "").strip()[:60]
+    phone = re.sub(r"[^\d+\-\s()]", "", str(data.get("phone") or "")).strip()[:20]
+    address = str(data.get("address") or "").strip()[:200]
+    order_id = secrets.token_hex(3).upper()
+
+    if verified:
+        uname = verified.get("username")
         customer = (
-            f"\n👤 {user.get('first_name', '')} "
-            f"{'@' + uname if uname else ''} (ID: {user.get('id', '-')})"
+            f"\n\n👤 {verified.get('first_name', '')} "
+            f"{'@' + uname if uname else ''} (ID: {verified['id']})"
         )
+    else:
+        customer = "\n\n⚠️ Mijoz Telegram orqali tasdiqlanmagan"
+    if name:
+        customer += f"\n🙋 {name}"
+    if phone:
+        customer += f"\n📞 {phone}"
+    if address:
+        customer += f"\n📍 {address}"
 
     order_text = (
-        "🚨 Yangi buyurtma!\n\n"
+        f"🚨 Yangi buyurtma #{order_id}\n\n"
         + "\n".join(lines)
         + f"\n\n💰 Umumiy summa: {money(total)} so'm"
         + customer
@@ -393,6 +524,15 @@ async def create_order(request: Request):
         await bot.send_message(ADMIN_ID, order_text)
     except Exception:
         logging.exception("Adminga xabar yuborib bo'lmadi")
-        return JSONResponse({"status": "error", "message": "Xatolik, qayta urinib ko'ring"}, status_code=500)
+        return err("Xatolik, qayta urinib ko'ring", 500)
 
-    return {"status": "success", "message": "Buyurtma qabul qilindi!"}
+    # Tasdiq faqat imzosi tekshirilgan mijozga yuboriladi
+    if verified:
+        with suppress(Exception):
+            await bot.send_message(
+                verified["id"],
+                f"✅ Buyurtmangiz #{order_id} qabul qilindi.\n"
+                f"Jami: {money(total)} so'm. Tez orada siz bilan bog'lanamiz.",
+            )
+
+    return {"status": "success", "message": "Buyurtma qabul qilindi!", "order_id": order_id}
