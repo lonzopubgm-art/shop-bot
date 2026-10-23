@@ -51,4 +51,63 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-templates = Jinja2Templat
+templates = Jinja2Templates(directory="templates")
+
+
+@app.get("/")
+async def root():
+    return {"status": "ok"}
+
+
+@app.get("/shop", response_class=HTMLResponse)
+async def shop_page(request: Request):
+    return templates.TemplateResponse(request, "index.html")
+
+
+@app.post("/api/order")
+async def create_order(request: Request):
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"status": "error", "message": "Noto'g'ri so'rov"}, status_code=400)
+
+    cart = data.get("cart", [])
+    total = data.get("total", 0)
+    user = data.get("user") or {}
+
+    lines = []
+    for item in cart:
+        name = item.get("name") or item.get("title") or "Mahsulot"
+        qty = item.get("qty") or item.get("quantity") or 1
+        price = item.get("price", "")
+        size = item.get("size")
+        line = f"• {name} x{qty}"
+        if size:
+            line += f" ({size})"
+        if price != "":
+            line += f" - {price} so'm"
+        lines.append(line)
+
+    customer = ""
+    if user:
+        uname = user.get("username")
+        customer = (
+            f"\n👤 {user.get('first_name', '')} "
+            f"{'@' + uname if uname else ''} (ID: {user.get('id', '-')})"
+        )
+
+    order_text = (
+        "🚨 Yangi buyurtma!\n\n"
+        + ("\n".join(lines) if lines else "Savat bo'sh")
+        + f"\n\n💰 Umumiy summa: {total} so'm"
+        + customer
+    )
+    logging.info(order_text)
+
+    try:
+        await bot.send_message(ADMIN_ID, order_text)
+    except Exception:
+        logging.exception("Adminga xabar yuborib bo'lmadi")
+        return JSONResponse({"status": "error", "message": "Xatolik, qayta urinib ko'ring"}, status_code=500)
+
+    return {"status": "success", "message": "Buyurtma qabul qilindi!"}
