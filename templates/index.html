@@ -6,53 +6,79 @@
 <title>Stilmen | Mens Wear</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-:root{--bg:#0e0e10;--card:#18181b;--line:#2a2a2f;--gold:#d4af37;--text:#f4f4f5;--mute:#9a9aa3}
+:root{--bg:#0c0c0e;--card:#17171a;--card2:#202024;--line:#2b2b31;--gold:#d4af37;--gold2:#f0d77a;--text:#f4f4f5;--mute:#9a9aa3;--red:#ff5d5d}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,"Segoe UI",Roboto,sans-serif;padding-bottom:100px}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,"Segoe UI",Roboto,sans-serif;padding-bottom:110px;-webkit-font-smoothing:antialiased}
 body.lock{overflow:hidden}
-header{padding:18px 16px 8px;text-align:center}
-.brand{font-size:26px;font-weight:800;letter-spacing:4px;color:var(--gold)}
-.sub{font-size:12px;letter-spacing:3px;color:var(--mute);margin-top:2px}
-.top{position:sticky;top:0;z-index:5;background:var(--bg);padding-bottom:4px}
-.search{margin:12px 16px 0}
-input,textarea{width:100%;background:var(--card);border:1px solid var(--line);color:var(--text);border-radius:12px;padding:13px 14px;font-size:16px;outline:none;font-family:inherit}
+button{font-family:inherit}
+
+header{padding:20px 16px 6px;text-align:center}
+.brand{font-size:28px;font-weight:800;letter-spacing:6px;background:linear-gradient(90deg,var(--gold),var(--gold2),var(--gold));-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{font-size:11px;letter-spacing:5px;color:var(--mute);margin-top:3px}
+
+.hero{margin:12px 16px 0;padding:16px 18px;border-radius:18px;background:linear-gradient(135deg,#26210f,#17171a 70%);border:1px solid #3a3217;display:flex;justify-content:space-between;align-items:center}
+.hero b{display:block;font-size:16px;color:var(--gold2)}
+.hero span{font-size:12.5px;color:var(--mute)}
+.hero i{font-style:normal;font-size:34px}
+
+.top{position:sticky;top:0;z-index:5;background:rgba(12,12,14,.94);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);padding:10px 0 6px;margin-top:6px}
+.search{margin:0 16px}
+input,textarea{width:100%;background:var(--card);border:1px solid var(--line);color:var(--text);border-radius:14px;padding:13px 15px;font-size:16px;outline:none;font-family:inherit;transition:border-color .2s}
 input:focus,textarea:focus{border-color:var(--gold)}
-.cats{display:flex;gap:8px;overflow-x:auto;padding:14px 16px 4px;scrollbar-width:none}
+::placeholder{color:#6d6d76}
+.cats{display:flex;gap:8px;overflow-x:auto;padding:12px 16px 4px;scrollbar-width:none}
 .cats::-webkit-scrollbar{display:none}
-.chip{flex:none;padding:9px 16px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:14px;cursor:pointer}
-.chip.on{background:var(--gold);border-color:var(--gold);color:#111;font-weight:600}
+.chip{flex:none;padding:9px 17px;border-radius:22px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:14px;cursor:pointer;transition:all .15s}
+.chip.on{background:linear-gradient(135deg,var(--gold),var(--gold2));border-color:var(--gold);color:#111;font-weight:700}
+
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px 16px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden;cursor:pointer;transition:transform .15s}
-.card:active{transform:scale(.97)}
-.pic{aspect-ratio:4/5;background:#232327;display:flex;align-items:center;justify-content:center;font-size:56px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden;cursor:pointer;transition:transform .15s;animation:fade .35s both}
+.card:active{transform:scale(.96)}
+.pic{aspect-ratio:4/5;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:56px;overflow:hidden}
 .pic img{width:100%;height:100%;object-fit:cover}
-.info{padding:10px 12px 14px}
+.info{padding:11px 12px 14px}
 .name{font-size:14px;line-height:1.3;min-height:36px}
-.price{color:var(--gold);font-weight:700;margin-top:6px}
-.empty{grid-column:1/-1;text-align:center;color:var(--mute);padding:40px 0}
-.btn{width:100%;border:0;border-radius:14px;padding:15px;font-size:16px;font-weight:700;background:var(--gold);color:#111;cursor:pointer}
+.price{color:var(--gold);font-weight:700;margin-top:6px;font-size:15px}
+.empty{grid-column:1/-1;text-align:center;color:var(--mute);padding:50px 0;line-height:1.8}
+.empty button{margin-top:10px;width:auto;padding:11px 22px}
+
+.skel{height:250px;border-radius:18px;background:linear-gradient(100deg,var(--card) 30%,var(--card2) 50%,var(--card) 70%);background-size:300% 100%;animation:sh 1.3s infinite}
+@keyframes sh{0%{background-position:100% 0}100%{background-position:0 0}}
+@keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes up{from{transform:translateY(100%)}to{transform:none}}
+
+.btn{width:100%;border:0;border-radius:15px;padding:15px;font-size:16px;font-weight:700;background:linear-gradient(135deg,var(--gold),var(--gold2));color:#111;cursor:pointer;transition:transform .1s}
+.btn:active{transform:scale(.98)}
 .btn:disabled{opacity:.5}
-.overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:flex-end;z-index:20}
+
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:flex-end;z-index:20}
 .overlay.show{display:flex}
-.sheet{background:var(--bg);width:100%;max-height:90vh;overflow-y:auto;border-radius:22px 22px 0 0;padding:18px 16px 24px;border-top:1px solid var(--line)}
-.sheet h3{font-size:18px;margin-bottom:10px}
-.close{float:right;background:var(--card);border:0;color:var(--text);width:34px;height:34px;border-radius:50%;font-size:16px}
-.big{aspect-ratio:1.2;border-radius:14px;overflow:hidden;background:#232327;display:flex;align-items:center;justify-content:center;font-size:90px;margin:8px 0 12px}
+.sheet{background:var(--bg);width:100%;max-height:92vh;overflow-y:auto;border-radius:24px 24px 0 0;padding:18px 16px calc(24px + env(safe-area-inset-bottom));border-top:1px solid var(--line);animation:up .28s ease-out}
+.sheet h3{font-size:19px;margin-bottom:10px}
+.close{float:right;background:var(--card2);border:0;color:var(--text);width:34px;height:34px;border-radius:50%;font-size:15px;cursor:pointer}
+.big{aspect-ratio:1.15;border-radius:16px;overflow:hidden;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:90px;margin:8px 0 14px}
 .big img{width:100%;height:100%;object-fit:cover}
-.label{font-size:13px;color:var(--mute);margin:14px 0 8px}
+.label{font-size:13px;color:var(--mute);margin:16px 0 8px}
 .opts{display:flex;flex-wrap:wrap;gap:8px}
-.row{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}
-.row .t{flex:1;font-size:14px}
-.row .t small{display:block;color:var(--mute);margin-top:3px}
-.qty{display:flex;align-items:center;gap:10px}
-.qty button{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:18px}
-.total{display:flex;justify-content:space-between;font-size:17px;font-weight:700;margin:16px 0 12px}
+
+.row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.thumb{width:54px;height:54px;border-radius:12px;background:var(--card2);overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:26px;flex:none}
+.thumb img{width:100%;height:100%;object-fit:cover}
+.row .t{flex:1;font-size:14px;min-width:0}
+.row .t small{display:block;color:var(--mute);margin-top:3px;font-size:12.5px}
+.qty{display:flex;align-items:center;gap:9px}
+.qty button{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:18px;cursor:pointer}
+.del{background:none!important;border:0!important;color:var(--red)!important;font-size:16px!important;width:26px!important}
+.total{display:flex;justify-content:space-between;font-size:18px;font-weight:700;margin:18px 0 12px}
 .total span:last-child{color:var(--gold)}
 .form{display:grid;gap:10px;margin-bottom:14px}
+
 .bar{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:10;display:none}
-.bar.show{display:block}
-.bar .btn{display:flex;justify-content:space-between;box-shadow:0 6px 24px rgba(0,0,0,.5)}
-.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);background:var(--gold);color:#111;padding:10px 18px;border-radius:20px;font-weight:600;font-size:14px;z-index:50;display:none;white-space:nowrap}
+.bar.show{display:block;animation:fade .25s}
+.bar .btn{display:flex;justify-content:space-between;box-shadow:0 8px 28px rgba(0,0,0,.6)}
+
+.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);background:var(--gold);color:#111;padding:10px 18px;border-radius:22px;font-weight:600;font-size:14px;z-index:50;display:none;max-width:92vw;text-align:center}
 </style>
 </head>
 <body>
@@ -61,10 +87,17 @@ input:focus,textarea:focus{border-color:var(--gold)}
   <div class="brand">STILMEN</div>
   <div class="sub">MENS WEAR</div>
 </header>
+
+<div class="hero">
+  <div><b>Yangi kolleksiya</b><span>Sifatli kiyimlar, qulay narxlarda</span></div>
+  <i>🧥</i>
+</div>
+
 <div class="top">
   <div class="search"><input id="q" placeholder="🔍 Qidirish..."></div>
   <div class="cats" id="cats"></div>
 </div>
+
 <div class="grid" id="grid"></div>
 
 <div class="bar" id="bar">
@@ -79,17 +112,19 @@ input:focus,textarea:focus{border-color:var(--gold)}
 const tg = window.Telegram && window.Telegram.WebApp;
 if (tg) {
   tg.ready(); tg.expand();
-  try { tg.setHeaderColor('#0e0e10'); tg.setBackgroundColor('#0e0e10'); } catch(e){}
+  try { tg.setHeaderColor('#0c0c0e'); tg.setBackgroundColor('#0c0c0e'); } catch(e){}
   try { tg.BackButton.onClick(() => closeAll()); } catch(e){}
 }
 
 let PRODUCTS = [], CATS = ["Hammasi"];
 let cat = "Hammasi", cart = [], cur = null, selSize = "", selColor = "";
-const CART_KEY = "stilmen_cart_v1";
+const CART_KEY = "stilmen_cart_v2";
 const $ = id => document.getElementById(id);
 const fmt = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " so'm";
 
-/* ---------- XAVFSIZLIK: HTML'ni tozalash ---------- */
+function hap(){ try { tg.HapticFeedback.impactOccurred("light"); } catch(e){} }
+
+/* ---------- Xavfsizlik: HTML'ni tozalash ---------- */
 function esc(s){
   return String(s == null ? "" : s)
     .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
@@ -105,7 +140,7 @@ function pic(p){
   return esc(p.emoji || "👕");
 }
 
-/* ---------- Tovarlarni tekshirib olish ---------- */
+/* ---------- Tovarni tekshirish ---------- */
 function cleanProduct(p){
   if (!p || typeof p !== "object") return null;
   const id = Number(p.id), price = Number(p.price);
@@ -121,9 +156,9 @@ function cleanProduct(p){
   };
 }
 
-/* ---------- Savatni saqlash ---------- */
+/* ---------- Savat xotirasi ---------- */
 function saveCart(){
-  try { localStorage.setItem(CART_KEY, JSON.stringify(cart)); } catch(e){}
+  try { localStorage.setItem(CART_KEY, JSON.stringify(cart.map(i => ({pid:i.pid, size:i.size, color:i.color, qty:i.qty})))); } catch(e){}
 }
 function loadCart(){
   try {
@@ -138,33 +173,43 @@ function loadCart(){
   } catch(e){ cart = []; }
 }
 
+/* ---------- Boshlash ---------- */
+function skeleton(){
+  $("grid").innerHTML = '<div class="skel"></div>'.repeat(4);
+}
 async function init(){
+  skeleton();
+  let failed = false;
   try{
-    const r = await fetch("/api/products");
+    const r = await fetch("/api/products", {cache:"no-store"});
     if (!r.ok) throw new Error("HTTP " + r.status);
     const data = await r.json();
     if (!Array.isArray(data)) throw new Error("bad data");
     PRODUCTS = data.map(cleanProduct).filter(Boolean);
   }catch(e){
-    PRODUCTS = [];
-    toast("Tovarlarni yuklab bo'lmadi");
+    PRODUCTS = []; failed = true;
   }
   CATS = ["Hammasi", ...new Set(PRODUCTS.map(p => p.cat))];
+  if (!CATS.includes(cat)) cat = "Hammasi";
   loadCart();
-  renderCats(); renderGrid(); updateBar();
+  renderCats(); renderGrid(failed); updateBar();
 }
 
 function renderCats(){
   $("cats").innerHTML = CATS.map((c,i) =>
     `<button class="chip ${c===cat?"on":""}" onclick="setCat(${i})">${esc(c)}</button>`).join("");
 }
-function setCat(i){ cat = CATS[i]; renderCats(); renderGrid(); }
+function setCat(i){ cat = CATS[i]; hap(); renderCats(); renderGrid(); }
 
-function renderGrid(){
+function renderGrid(failed){
+  if (failed){
+    $("grid").innerHTML = '<div class="empty">Tovarlarni yuklab bo\'lmadi 😕<br><button class="btn" onclick="init()">Qayta urinish</button></div>';
+    return;
+  }
   const s = $("q").value.trim().toLowerCase();
   const list = PRODUCTS.filter(p => (cat==="Hammasi" || p.cat===cat) && p.name.toLowerCase().includes(s));
-  $("grid").innerHTML = list.length ? list.map(p =>
-    `<div class="card" onclick="openProduct(${p.id})">
+  $("grid").innerHTML = list.length ? list.map((p,k) =>
+    `<div class="card" style="animation-delay:${Math.min(k,8)*40}ms" onclick="openProduct(${p.id})">
        <div class="pic">${pic(p)}</div>
        <div class="info"><div class="name">${esc(p.name)}</div><div class="price">${fmt(p.price)}</div></div>
      </div>`).join("") : '<div class="empty">Tovar topilmadi</div>';
@@ -176,12 +221,12 @@ function showSheet(id){
   try { tg && tg.BackButton.show(); } catch(e){}
 }
 
+/* ---------- Tovar oynasi ---------- */
 function openProduct(id){
   cur = PRODUCTS.find(p => p.id===id);
   if (!cur) return;
   selSize = cur.sizes[0]; selColor = cur.colors[0];
-  renderProduct();
-  showSheet("pOv");
+  hap(); renderProduct(); showSheet("pOv");
 }
 function renderProduct(){
   const p = cur;
@@ -189,25 +234,26 @@ function renderProduct(){
     `<button class="close" onclick="closeAll()">✕</button>
      <h3>${esc(p.name)}</h3>
      <div class="big">${pic(p)}</div>
-     <div class="price" style="font-size:20px">${fmt(p.price)}</div>
+     <div class="price" style="font-size:22px">${fmt(p.price)}</div>
      <div class="label">Razmer</div>
      <div class="opts">${p.sizes.map((s,i)=>`<button class="chip ${s===selSize?"on":""}" onclick="pick('size',${i})">${esc(s)}</button>`).join("")}</div>
      <div class="label">Rang</div>
      <div class="opts">${p.colors.map((c,i)=>`<button class="chip ${c===selColor?"on":""}" onclick="pick('color',${i})">${esc(c)}</button>`).join("")}</div>
-     <div style="height:18px"></div>
+     <div style="height:20px"></div>
      <button class="btn" onclick="addToCart()">Savatga qo'shish</button>`;
 }
 function pick(t,i){
   if (t==="size") selSize = cur.sizes[i]; else selColor = cur.colors[i];
-  renderProduct();
+  hap(); renderProduct();
 }
 
+/* ---------- Savat ---------- */
 function addToCart(){
   const key = cur.id + "|" + selSize + "|" + selColor;
   const ex = cart.find(i => i.key===key);
   if (ex) ex.qty = Math.min(99, ex.qty + 1);
   else cart.push({key, pid:cur.id, name:cur.name, price:cur.price, size:selSize, color:selColor, qty:1});
-  closeAll(); updateBar(); toast("Savatga qo'shildi ✅");
+  hap(); closeAll(); updateBar(); toast("Savatga qo'shildi ✅");
 }
 
 function totalSum(){ return cart.reduce((s,i) => s + i.price*i.qty, 0); }
@@ -219,45 +265,70 @@ function updateBar(){
   saveCart();
 }
 
-function openCart(){ renderCart(); showSheet("cOv"); }
+function openCart(){ hap(); renderCart(); showSheet("cOv"); }
 function renderCart(){
   $("cSheet").innerHTML =
     `<button class="close" onclick="closeAll()">✕</button><h3>🛒 Savat</h3>` +
-    cart.map((i,x) =>
-      `<div class="row">
-         <div class="t">${esc(i.name)}<small>${esc(i.size)} · ${esc(i.color)} · ${fmt(i.price)}</small></div>
-         <div class="qty"><button onclick="chg(${x},-1)">−</button><b>${i.qty}</b><button onclick="chg(${x},1)">+</button></div>
-       </div>`).join("") +
+    cart.map((i,x) => {
+      const p = PRODUCTS.find(z => z.id === i.pid) || {};
+      return `<div class="row">
+         <div class="thumb">${pic(p)}</div>
+         <div class="t">${esc(i.name)}<small>${esc(i.size)} · ${esc(i.color)}</small><small style="color:var(--gold)">${fmt(i.price*i.qty)}</small></div>
+         <div class="qty"><button onclick="chg(${x},-1)">−</button><b>${i.qty}</b><button onclick="chg(${x},1)">+</button><button class="del" onclick="rm(${x})">🗑</button></div>
+       </div>`;
+    }).join("") +
     `<div class="total"><span>Jami:</span><span>${fmt(totalSum())}</span></div>
      <div class="form">
        <input id="fName" placeholder="Ismingiz" autocomplete="name" maxlength="60">
-       <input id="fPhone" type="tel" placeholder="Telefon: +998 90 123 45 67" autocomplete="tel" maxlength="20">
-       <textarea id="fAddr" rows="2" placeholder="Manzil" maxlength="200"></textarea>
+       <input id="fPhone" type="tel" inputmode="numeric" value="+998 " autocomplete="tel" maxlength="17" oninput="maskPhone(this)">
+       <textarea id="fAddr" rows="2" placeholder="Manzil (shahar, tuman, ko'cha)" maxlength="200"></textarea>
      </div>
      <button class="btn" id="sendBtn" onclick="sendOrder()">Buyurtma berish</button>`;
 }
-function chg(x,d){
+function keepForm(fn){
   const ids = ["fName","fPhone","fAddr"];
-  const v = ids.map(id => $(id).value);
-  cart[x].qty = Math.min(99, cart[x].qty + d);
-  if (cart[x].qty <= 0) cart.splice(x,1);
-  updateBar();
+  const v = ids.map(id => $(id) ? $(id).value : "");
+  fn();
   if (!cart.length){ closeAll(); return; }
   renderCart();
-  ids.forEach((id,k) => $(id).value = v[k]);
+  ids.forEach((id,k) => { if ($(id)) $(id).value = v[k]; });
+}
+function chg(x,d){
+  keepForm(() => {
+    cart[x].qty = Math.min(99, cart[x].qty + d);
+    if (cart[x].qty <= 0) cart.splice(x,1);
+    updateBar();
+  });
+}
+function rm(x){
+  keepForm(() => { cart.splice(x,1); updateBar(); });
 }
 
+/* ---------- Telefon ---------- */
+function maskPhone(el){
+  let d = el.value.replace(/\D/g, "");
+  if (d.startsWith("998")) d = d.slice(3);
+  else if (el.value.startsWith("+") && d.length <= 2) d = "";
+  d = d.slice(0, 9);
+  let o = "+998 ";
+  if (d.length) o += d.slice(0,2);
+  if (d.length > 2) o += " " + d.slice(2,5);
+  if (d.length > 5) o += " " + d.slice(5,7);
+  if (d.length > 7) o += " " + d.slice(7,9);
+  el.value = o;
+}
 function normPhone(s){
   let d = String(s).replace(/\D/g, "");
   if (d.length === 9) d = "998" + d;
   return /^998\d{9}$/.test(d) ? "+" + d : "";
 }
 
+/* ---------- Buyurtma yuborish ---------- */
 async function sendOrder(){
   const name = $("fName").value.trim(), addr = $("fAddr").value.trim();
   const phone = normPhone($("fPhone").value);
   if (name.length < 2){ toast("Ismingizni kiriting"); return; }
-  if (!phone){ toast("Telefon raqam noto'g'ri (+998 XX XXX XX XX)"); return; }
+  if (!phone){ toast("Telefon raqam to'liq emas"); return; }
   if (addr.length < 5){ toast("Manzilni to'liq kiriting"); return; }
 
   const u = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) || {};
@@ -268,12 +339,7 @@ async function sendOrder(){
       method: "POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({
-        // YANGI: serverda tekshirish uchun
-        init_data: tg ? tg.initData : "",
-        customer: {name, phone, address: addr},
-        items: cart.map(i => ({id:i.pid, size:i.size, color:i.color, qty:i.qty})),
-        // ESKI format: server yangilanguncha ishlashi uchun (keyin o'chirasiz)
-        cart: cart.map(i => ({name:i.name, qty:i.qty, price:i.price, size:i.size + " / " + i.color})),
+        cart: cart.map(i => ({id:i.pid, name:i.name, qty:i.qty, price:i.price, size:i.size, color:i.color})),
         total: totalSum(),
         user: {first_name: name + " | " + phone + " | " + addr, username: u.username || "", id: u.id || "-"}
       })
@@ -281,6 +347,7 @@ async function sendOrder(){
     if (!r.ok) throw new Error("HTTP " + r.status);
     const d = await r.json();
     if (d.status !== "success") throw new Error();
+    try { tg.HapticFeedback.notificationOccurred("success"); } catch(e){}
     cart = []; updateBar(); closeAll();
     toast("Buyurtma qabul qilindi! ✅");
     setTimeout(() => { if (tg) tg.close(); }, 1500);
@@ -298,11 +365,11 @@ function closeAll(){
 }
 function toast(m){
   const t = $("toast"); t.textContent = m; t.style.display = "block";
-  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 2000);
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 2200);
 }
 
 let _deb;
-$("q").addEventListener("input", () => { clearTimeout(_deb); _deb = setTimeout(renderGrid, 250); });
+$("q").addEventListener("input", () => { clearTimeout(_deb); _deb = setTimeout(() => renderGrid(), 250); });
 init();
 </script>
 </body>
