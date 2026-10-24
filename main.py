@@ -31,14 +31,16 @@ BASE_DIR = Path(__file__).resolve().parent
 
 # ====================== SOZLAMALAR (hammasi Render Environment'dan) ======================
 TOKEN = os.environ["TOKEN"]
-ADMIN_ID = int(os.environ["ADMIN_ID"])
+# ADMIN_ID ga bir nechta ID yozilsa ham, birinchisi admin bo'ladi (server yiqilmaydi)
+ADMIN_ID = int(re.findall(r"\d+", os.environ["ADMIN_ID"])[0])
 WEBHOOK_SECRET = os.environ["WEBHOOK_SECRET"]
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://shop-bot-2-8bi5.onrender.com").rstrip("/")
 WEBHOOK_PATH = "/webhook"
 # Telegram imzosi tekshirilsin (soxta buyurtmalardan himoya). Render'da STRICT_ORDERS=1
 STRICT_ORDERS = os.getenv("STRICT_ORDERS") == "1"
-# Ishchilarning Telegram ID raqamlari, vergul bilan: 712345678,723456789
-SELLER_IDS = {int(x) for x in re.findall(r"\d+", os.getenv("SELLER_IDS", ""))}
+# Ishchilarning Telegram ID raqamlari, vergul bilan. SELLER_IDS yoki WORKER_IDS nomi ishlaydi
+_workers_raw = os.getenv("SELLER_IDS", "") + "," + os.getenv("WORKER_IDS", "")
+SELLER_IDS = {int(x) for x in re.findall(r"\d+", _workers_raw)} - {ADMIN_ID}
 STAFF_IDS = SELLER_IDS | {ADMIN_ID}
 LOW_STOCK = 2  # shu sondan kam qolsa adminga ogohlantirish
 TZ = timezone(timedelta(hours=5))  # Toshkent vaqti
@@ -144,7 +146,7 @@ async def pin_only(message_id):
 
 
 async def send_backup(items):
-    """Tovarlar zaxirasini adminga yuboradi va qadaydi (faqat admin o'zgartirganda)."""
+    """Tovarlar zaxirasini adminga yuboradi va qadaydi (tovar o'zgarganda)."""
     data = json.dumps(items, ensure_ascii=False, indent=2).encode("utf-8")
     try:
         sent = await bot.send_document(
@@ -383,6 +385,16 @@ staff = Router()
 staff.message.filter(F.from_user.id.in_(STAFF_IDS))
 
 
+class Add(StatesGroup):
+    name = State()
+    price = State()
+    cat = State()
+    sizes = State()
+    colors = State()
+    stock = State()
+    photo = State()
+
+
 @staff.message(Command("help"))
 async def help_cmd(m: types.Message):
     if m.from_user.id == ADMIN_ID:
@@ -406,9 +418,11 @@ async def help_cmd(m: types.Message):
     else:
         await m.answer(
             "Xodim buyruqlari:\n"
+            "/add - yangi tovar qo'shish\n"
             "/list - tovarlar va ID raqamlari\n"
             "/stock ID - tovar qoldig'i\n"
-            "/sold ID razmer rang [soni] - sotilganini yozish\n\n"
+            "/sold ID razmer rang [soni] - sotilganini yozish\n"
+            "/cancel - tovar qo'shishni bekor qilish\n\n"
             "Masalan: /sold 3 M Qora\n"
             "Yoki: /sold 3 M Qora 2"
         )
@@ -499,46 +513,28 @@ async def sold_cmd(m: types.Message):
             await bot.send_message(ADMIN_ID, warn + f"\n(sotuvchi: {m.from_user.full_name})")
 
 
-dp.include_router(staff)
-
-
-# ====================== ADMIN BUYRUQLARI ======================
-admin = Router()
-admin.message.filter(F.from_user.id == ADMIN_ID)
-admin.callback_query.filter(F.from_user.id == ADMIN_ID)
-
-
-class Add(StatesGroup):
-    name = State()
-    price = State()
-    cat = State()
-    sizes = State()
-    colors = State()
-    stock = State()
-    photo = State()
-
-
-@admin.message(Command("cancel"))
+# ---------- Tovar qo'shish (admin va ishchilar) ----------
+@staff.message(Command("cancel"))
 async def cancel(m: types.Message, state: FSMContext):
     await state.clear()
     await m.answer("Bekor qilindi.")
 
 
-@admin.message(Command("add"))
+@staff.message(Command("add"))
 async def add_start(m: types.Message, state: FSMContext):
     await state.set_state(Add.name)
     await m.answer("Tovar nomi? (bekor qilish: /cancel)")
 
 
 # Buyruqlar (/list, /del ...) nom sifatida qabul qilinmasligi uchun "/" bilan boshlanmaganlar olinadi
-@admin.message(Add.name, F.text.regexp(r"^[^/]"))
+@staff.message(Add.name, F.text.regexp(r"^[^/]"))
 async def add_name(m: types.Message, state: FSMContext):
     await state.update_data(name=m.text.strip())
     await state.set_state(Add.price)
     await m.answer("Narxi? (faqat raqam, masalan 180000)")
 
 
-@admin.message(Add.price, F.text.regexp(r"^[^/]"))
+@staff.message(Add.price, F.text.regexp(r"^[^/]"))
 async def add_price(m: types.Message, state: FSMContext):
     price = to_int(m.text)
     if price <= 0:
@@ -548,14 +544,14 @@ async def add_price(m: types.Message, state: FSMContext):
     await m.answer("Kategoriya? (masalan: Ko'ylak, Shim, Kurtka, Poyabzal)")
 
 
-@admin.message(Add.cat, F.text.regexp(r"^[^/]"))
+@staff.message(Add.cat, F.text.regexp(r"^[^/]"))
 async def add_cat(m: types.Message, state: FSMContext):
     await state.update_data(cat=m.text.strip())
     await state.set_state(Add.sizes)
     await m.answer("Razmerlar? Vergul bilan: S, M, L, XL (shim uchun: 30, 32, 34, 36)")
 
 
-@admin.message(Add.sizes, F.text.regexp(r"^[^/]"))
+@staff.message(Add.sizes, F.text.regexp(r"^[^/]"))
 async def add_sizes(m: types.Message, state: FSMContext):
     sizes = split(m.text)
     if not sizes:
@@ -565,7 +561,7 @@ async def add_sizes(m: types.Message, state: FSMContext):
     await m.answer("Ranglar? Vergul bilan: Oq, Qora, Ko'k")
 
 
-@admin.message(Add.colors, F.text.regexp(r"^[^/]"))
+@staff.message(Add.colors, F.text.regexp(r"^[^/]"))
 async def add_colors(m: types.Message, state: FSMContext):
     colors = split(m.text)
     if not colors:
@@ -574,12 +570,11 @@ async def add_colors(m: types.Message, state: FSMContext):
     await state.set_state(Add.stock)
     await m.answer(
         "Har bir razmer va rang uchun nechta dona bor? Bir xil son yozing (masalan 5).\n"
-        "Keyin /setstock bilan alohida o'zgartirsa bo'ladi.\n"
         "Qoldiqni hisoblamaslik uchun - (tire) yozing."
     )
 
 
-@admin.message(Add.stock, F.text.regexp(r"^[^/]"))
+@staff.message(Add.stock, F.text.regexp(r"^[^/]"))
 async def add_stock(m: types.Message, state: FSMContext):
     t = m.text.strip()
     if t == "-":
@@ -592,7 +587,7 @@ async def add_stock(m: types.Message, state: FSMContext):
     await m.answer("Endi tovar rasmini yuboring (oddiy foto sifatida).")
 
 
-@admin.message(Add.photo, F.photo)
+@staff.message(Add.photo, F.photo)
 async def add_photo(m: types.Message, state: FSMContext):
     data = await state.get_data()
     file_id = m.photo[-1].file_id
@@ -618,6 +613,27 @@ async def add_photo(m: types.Message, state: FSMContext):
     await state.clear()
     await m.answer(f"✅ Qo'shildi: {data['name']} (ID: {new_id})")
     await send_backup(items)
+    if m.from_user.id != ADMIN_ID:
+        with suppress(Exception):
+            await bot.send_message(
+                ADMIN_ID,
+                f"👷 {m.from_user.full_name} yangi tovar qo'shdi: {data['name']} "
+                f"({money(data['price'])} so'm, ID: {new_id})",
+            )
+
+
+@staff.message(Add.photo)
+async def add_photo_wrong(m: types.Message):
+    await m.answer("Iltimos, rasm yuboring (fayl emas, oddiy foto). Bekor qilish: /cancel")
+
+
+dp.include_router(staff)
+
+
+# ====================== ADMIN BUYRUQLARI (faqat admin) ======================
+admin = Router()
+admin.message.filter(F.from_user.id == ADMIN_ID)
+admin.callback_query.filter(F.from_user.id == ADMIN_ID)
 
 
 @admin.message(Command("del"))
@@ -810,12 +826,6 @@ async def restore(m: types.Message):
         await m.answer("Fayl noto'g'ri.")
 
 
-# Eng oxirida: rasm kutilayotganda boshqa narsa yuborilsa
-@admin.message(Add.photo)
-async def add_photo_wrong(m: types.Message):
-    await m.answer("Iltimos, rasm yuboring (fayl emas, oddiy foto). Bekor qilish: /cancel")
-
-
 dp.include_router(admin)
 
 
@@ -900,6 +910,7 @@ async def lifespan(app: FastAPI):
         allowed_updates=dp.resolve_used_update_types(),
     )
     logging.info("Webhook o'rnatildi: %s%s", WEBHOOK_URL, WEBHOOK_PATH)
+    logging.info("Admin: %s | Ishchilar: %s", ADMIN_ID, sorted(SELLER_IDS))
     yield
     with suppress(Exception):
         await bot.session.close()
