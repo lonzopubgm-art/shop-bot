@@ -35,7 +35,10 @@ input:focus,textarea:focus{border-color:var(--gold)}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px 16px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden;cursor:pointer;transition:transform .15s;animation:fade .35s both}
 .card:active{transform:scale(.96)}
-.pic{aspect-ratio:4/5;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:56px;overflow:hidden}
+.pic{aspect-ratio:4/5;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:56px;overflow:hidden;position:relative}
+.badge{position:absolute;top:8px;left:8px;background:var(--red);color:#fff;font-size:11px;font-weight:700;padding:4px 9px;border-radius:12px;letter-spacing:.3px}
+.chip.off{opacity:.35;text-decoration:line-through;pointer-events:none}
+.lowtxt{color:var(--red);font-size:13px;margin-top:10px}
 .pic img{width:100%;height:100%;object-fit:cover}
 .info{padding:11px 12px 14px}
 .name{font-size:14px;line-height:1.3;min-height:36px}
@@ -152,8 +155,19 @@ function cleanProduct(p){
     cat: String(p.cat || "Boshqa"),
     img: p.img || "", emoji: p.emoji || "",
     sizes: arr(p.sizes).length ? arr(p.sizes) : ["Standart"],
-    colors: arr(p.colors).length ? arr(p.colors) : ["Standart"]
+    colors: arr(p.colors).length ? arr(p.colors) : ["Standart"],
+    out: arr(p.out),
+    low: (p.low && typeof p.low === "object") ? p.low : {},
+    soldout: !!p.soldout
   };
+}
+
+/* ---------- Qoldiq (tugagan razmer/rang) ---------- */
+const vk = (s, c) => s + "|" + c;
+function isOut(p, s, c){ return p.out.includes(vk(s, c)); }
+function firstAvail(p){
+  for (const s of p.sizes) for (const c of p.colors) if (!isOut(p, s, c)) return [s, c];
+  return null;
 }
 
 /* ---------- Savat xotirasi ---------- */
@@ -166,7 +180,7 @@ function loadCart(){
     if (!Array.isArray(raw)) return;
     cart = raw.map(i => {
       const p = PRODUCTS.find(x => x.id === Number(i.pid));
-      if (!p || !p.sizes.includes(i.size) || !p.colors.includes(i.color)) return null;
+      if (!p || !p.sizes.includes(i.size) || !p.colors.includes(i.color) || isOut(p, i.size, i.color)) return null;
       const qty = Math.min(99, Math.max(1, parseInt(i.qty) || 1));
       return {key: p.id+"|"+i.size+"|"+i.color, pid:p.id, name:p.name, price:p.price, size:i.size, color:i.color, qty};
     }).filter(Boolean);
@@ -210,7 +224,7 @@ function renderGrid(failed){
   const list = PRODUCTS.filter(p => (cat==="Hammasi" || p.cat===cat) && p.name.toLowerCase().includes(s));
   $("grid").innerHTML = list.length ? list.map((p,k) =>
     `<div class="card" style="animation-delay:${Math.min(k,8)*40}ms" onclick="openProduct(${p.id})">
-       <div class="pic">${pic(p)}</div>
+       <div class="pic">${pic(p)}${p.soldout ? '<div class="badge">Tugagan</div>' : ''}</div>
        <div class="info"><div class="name">${esc(p.name)}</div><div class="price">${fmt(p.price)}</div></div>
      </div>`).join("") : '<div class="empty">Tovar topilmadi</div>';
 }
@@ -225,7 +239,8 @@ function showSheet(id){
 function openProduct(id){
   cur = PRODUCTS.find(p => p.id===id);
   if (!cur) return;
-  selSize = cur.sizes[0]; selColor = cur.colors[0];
+  const a = firstAvail(cur);
+  if (a){ selSize = a[0]; selColor = a[1]; } else { selSize = cur.sizes[0]; selColor = cur.colors[0]; }
   hap(); renderProduct(); showSheet("pOv");
 }
 function renderProduct(){
@@ -236,19 +251,27 @@ function renderProduct(){
      <div class="big">${pic(p)}</div>
      <div class="price" style="font-size:22px">${fmt(p.price)}</div>
      <div class="label">Razmer</div>
-     <div class="opts">${p.sizes.map((s,i)=>`<button class="chip ${s===selSize?"on":""}" onclick="pick('size',${i})">${esc(s)}</button>`).join("")}</div>
+     <div class="opts">${p.sizes.map((s,i)=>`<button class="chip ${s===selSize?"on":""} ${p.colors.every(c=>isOut(p,s,c))?"off":""}" onclick="pick('size',${i})">${esc(s)}</button>`).join("")}</div>
      <div class="label">Rang</div>
-     <div class="opts">${p.colors.map((c,i)=>`<button class="chip ${c===selColor?"on":""}" onclick="pick('color',${i})">${esc(c)}</button>`).join("")}</div>
+     <div class="opts">${p.colors.map((c,i)=>`<button class="chip ${c===selColor?"on":""} ${isOut(p,selSize,c)?"off":""}" onclick="pick('color',${i})">${esc(c)}</button>`).join("")}</div>
+     ${p.low[vk(selSize,selColor)] ? `<div class="lowtxt">Oxirgi ${esc(p.low[vk(selSize,selColor)])} ta qoldi</div>` : ""}
      <div style="height:20px"></div>
-     <button class="btn" onclick="addToCart()">Savatga qo'shish</button>`;
+     ${isOut(p,selSize,selColor) ? `<button class="btn" disabled>Tugagan</button>` : `<button class="btn" onclick="addToCart()">Savatga qo'shish</button>`}`;
 }
 function pick(t,i){
-  if (t==="size") selSize = cur.sizes[i]; else selColor = cur.colors[i];
+  if (t==="size"){
+    selSize = cur.sizes[i];
+    if (isOut(cur, selSize, selColor)){
+      const c = cur.colors.find(x => !isOut(cur, selSize, x));
+      if (c) selColor = c;
+    }
+  } else selColor = cur.colors[i];
   hap(); renderProduct();
 }
 
 /* ---------- Savat ---------- */
 function addToCart(){
+  if (isOut(cur, selSize, selColor)){ toast("Bu razmer/rang tugagan"); return; }
   const key = cur.id + "|" + selSize + "|" + selColor;
   const ex = cart.find(i => i.key===key);
   if (ex) ex.qty = Math.min(99, ex.qty + 1);
@@ -333,7 +356,7 @@ async function sendOrder(){
 
   const btn = $("sendBtn");
   btn.disabled = true; btn.textContent = "Yuborilmoqda...";
-  let msg = "Xatolik, qayta urinib ko'ring";
+  let msg = "Xatolik, qayta urinib ko'ring", status = 0;
   try{
     const r = await fetch("/api/order", {
       method: "POST",
@@ -346,6 +369,7 @@ async function sendOrder(){
         init_data: (tg && tg.initData) || ""
       })
     });
+    status = r.status;
     const d = await r.json().catch(() => ({}));
     if (!r.ok || d.status !== "success"){ msg = d.message || msg; throw new Error(); }
     try { tg.HapticFeedback.notificationOccurred("success"); } catch(e){}
@@ -355,6 +379,7 @@ async function sendOrder(){
   }catch(e){
     btn.disabled = false; btn.textContent = "Buyurtma berish";
     toast(msg);
+    if (status === 409){ closeAll(); init(); }
   }
 }
 
